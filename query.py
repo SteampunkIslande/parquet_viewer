@@ -211,5 +211,6 @@ class Query(qc.QObject):
             self.page_count = self.page_count + 1
         if self.current_page > self.page_count:
             self.set_page(self.page_count)
+            self.update()  # TODO: Fix edge case
         self.blockSignals(False)
         self.query_changed.emit()

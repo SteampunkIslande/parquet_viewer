@@ -75,8 +75,6 @@ class PageSelector(qw.QWidget):
         self.page_lineedit.blockSignals(True)
         self.rows_lineedit.blockSignals(True)
 
-        print("Updating page selector")
-
         self.rows_lineedit.setText(str(self.query.get_limit()))
         self.page_lineedit.setText(str(self.query.get_page()))
 
