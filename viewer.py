@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from pathlib import Path
 
 import PySide6.QtCore as qc
@@ -213,6 +215,8 @@ class Query(qc.QObject):
         self.page_count = self.row_count // self.limit
         if self.row_count % self.limit > 0:
             self.page_count = self.page_count + 1
+        if self.current_page > self.page_count:
+            self.set_page(self.page_count)
         self.blockSignals(False)
         self.query_changed.emit()
 
@@ -543,6 +547,8 @@ class PageSelector(qw.QWidget):
         # Block signals to avoid infinite loops
         self.page_lineedit.blockSignals(True)
         self.rows_lineedit.blockSignals(True)
+
+        print("Updating page selector")
 
         self.rows_lineedit.setText(str(self.query.get_limit()))
         self.page_lineedit.setText(str(self.query.get_page()))
