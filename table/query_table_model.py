@@ -11,7 +11,6 @@ class QueryTableModel(qc.QAbstractTableModel):
     def __init__(self, query: Query, parent=None):
         super().__init__(parent)
         self.query = query
-        self.query_string = query.select_query()
 
         self.query.query_changed.connect(self.update)
 

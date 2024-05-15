@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 import duckdb as db
+import polars as pl
 import PySide6.QtCore as qc
 from cachetools import cached
 
@@ -53,7 +54,7 @@ class Query(qc.QObject):
         self.header = []
 
     def add_field(self, field: str):
-        self.fields.append(f'"{field}"')
+        self.fields.append(field)
         self.fields_changed.emit()
 
         return self
@@ -85,6 +86,8 @@ class Query(qc.QObject):
 
     def set_file(self, file: Path):
         self.init_state()
+        if not isinstance(file, Path):
+            file = Path(file)
         self.file = file
         self.file_changed.emit()
 
@@ -178,7 +181,12 @@ class Query(qc.QObject):
         return self.header
 
     def select_query(self):
-        fields = ", ".join(self.fields) or "*"
+
+        if not self.fields:
+            self.fields = pl.scan_parquet(self.file).columns[:5]
+
+        fields = ", ".join(map(lambda s: f'"{s}"', self.fields))
+
         filters = " AND ".join(self.filters)
         order_by = ", ".join(
             [f"{field} {direction}" for field, direction in self.order_by]
@@ -198,6 +206,12 @@ class Query(qc.QObject):
 
     def update(self):
         self.blockSignals(True)
+        if not self.file or not self.file.exists():
+            self.header = []
+            self.data = []
+            self.blockSignals(False)
+            self.query_changed.emit()
+            return
         dict_data = run_sql(self.select_query())
         if dict_data:
             self.header = list(dict_data[0].keys())
@@ -205,6 +219,12 @@ class Query(qc.QObject):
         else:
             self.header = []
             self.data = []
+            self.row_count = 0
+            self.page_count = 1
+            self.set_page(1)
+            self.blockSignals(False)
+            self.query_changed.emit()
+            return
         self.row_count = run_sql(self.count_query())[0]["count_star"]
         self.page_count = self.row_count // self.limit
         if self.row_count % self.limit > 0:
@@ -214,3 +234,13 @@ class Query(qc.QObject):
             self.update()  # TODO: Fix edge case
         self.blockSignals(False)
         self.query_changed.emit()
+
+    def to_json(self):
+        return {
+            "fields": self.fields,
+            "filters": self.filters,
+            "order_by": self.order_by,
+            "limit": self.limit,
+            "offset": self.offset,
+            "file": str(self.file),
+        }
