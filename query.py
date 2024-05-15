@@ -45,7 +45,7 @@ class Query(qc.QObject):
         self.order_by = []
         self.limit = 10
         self.offset = 0
-        self.file = None
+        self.files = None
 
         self.current_page = 1
         self.page_count = 1
@@ -84,11 +84,9 @@ class Query(qc.QObject):
     def get_file(self) -> Path:
         return self.file
 
-    def set_file(self, file: Path):
+    def set_files(self, files: List[Path]):
         self.init_state()
-        if not isinstance(file, Path):
-            file = Path(file)
-        self.file = file
+        self.files = files
         self.file_changed.emit()
 
         return self
@@ -182,8 +180,11 @@ class Query(qc.QObject):
 
     def select_query(self):
 
+        if not self.files:
+            return ""
+
         if not self.fields:
-            self.fields = pl.scan_parquet(self.file).columns[:5]
+            self.fields = pl.scan_parquet(self.files[0]).columns[:5]
 
         fields = ", ".join(map(lambda s: f'"{s}"', self.fields))
 
@@ -192,21 +193,28 @@ class Query(qc.QObject):
             [f"{field} {direction}" for field, direction in self.order_by]
         )
 
+        files = "[" + ",".join(f"'{f}'" for f in self.files) + "]"
+
         if filters:
             filters = f"WHERE {filters}"
         if order_by:
             order_by = f"ORDER BY {order_by}"
-        return f"SELECT {fields} FROM '{self.file}' {filters} {order_by} LIMIT {self.limit} OFFSET {self.offset}"
+        return f"""SELECT string_split(parse_filename(filename,true),'.')[1] AS run_name,{fields} FROM read_parquet({files},union_by_name=True,filename=True) {filters} {order_by} LIMIT {self.limit} OFFSET {self.offset}"""
 
     def count_query(self):
+        if not self.files:
+            return ""
+
         filters = " AND ".join(self.filters)
+        files = "[" + ",".join(f"'{f}'" for f in self.files) + "]"
+
         if filters:
             filters = f" WHERE {filters} "
-        return f"SELECT COUNT(*) AS count_star FROM '{self.file}'{filters}"
+        return f"""SELECT COUNT(*) AS count_star FROM read_parquet({files},union_by_name=True,filename=True) {filters}"""
 
     def update(self):
         self.blockSignals(True)
-        if not self.file or not self.file.exists():
+        if not self.files or all([not f.exists() for f in self.files]):
             self.header = []
             self.data = []
             self.blockSignals(False)
@@ -235,12 +243,22 @@ class Query(qc.QObject):
         self.blockSignals(False)
         self.query_changed.emit()
 
-    def to_json(self):
+    def to_dict(self):
         return {
             "fields": self.fields,
             "filters": self.filters,
             "order_by": self.order_by,
             "limit": self.limit,
             "offset": self.offset,
-            "file": str(self.file),
+            "file": [str(f) for f in self.files] if self.files else [],
         }
+
+    def from_dict(self, d: dict):
+        self.fields = d.get("fields", [])
+        self.filters = d.get("filters", [])
+        self.order_by = d.get("order_by", [])
+        self.limit = d.get("limit", 10)
+        self.offset = d.get("offset", 0)
+        self.files = [Path(f) for f in d.get("file", [])]
+        self.update()
+        return self

@@ -35,30 +35,35 @@ class MainWindow(qw.QMainWindow):
         self.open_action = self.file_menu.addAction("Open")
         self.open_action.triggered.connect(self.open_file)
 
+        self.load_previous_session()
+
+    def load_previous_session(self):
+        prefs = self.get_user_prefs()
+        if "query" not in prefs:
+            return
+        self.query.from_dict(prefs["query"])
+
     def open_file(self):
-        last_open_file = self.get_user_prefs("last_file")
-        if not last_open_file:
+        last_open_files = self.get_user_prefs().get("last_files", None)
+        if not last_open_files:
             d = Path().home()
         else:
-            d = Path(last_open_file).parent
-        file, _ = qw.QFileDialog.getOpenFileName(
+            d = Path(last_open_files[0]).parent
+        files, _ = qw.QFileDialog.getOpenFileNames(
             self,
             "Open Parquet file",
             dir=str(d),
             filter="Parquet files (*.parquet)",
         )
-        if file:
-            self.save_user_prefs("last_file", file)
-            self.query.set_file(file)
+        if files:
+            self.save_user_prefs({"last_files": files})
+            self.query.set_files([Path(f) for f in files])
 
     def closeEvent(self, event: qg.QCloseEvent):
-        self.save_user_prefs_dict(self.query.to_json())
+        self.save_user_prefs({"query": self.query.to_dict()})
         event.accept()
 
-    def save_user_prefs(self, key: str, value):
-        self.save_user_prefs_dict({key: value})
-
-    def save_user_prefs_dict(self, prefs: dict):
+    def save_user_prefs(self, prefs: dict):
 
         user_prefs = Path(
             qc.QStandardPaths().writableLocation(
@@ -76,7 +81,7 @@ class MainWindow(qw.QMainWindow):
         with open(user_prefs / "config.json", "w") as f:
             json.dump(old_prefs, f)
 
-    def get_user_prefs(self, key: str):
+    def get_user_prefs(self):
         user_prefs = Path(
             qc.QStandardPaths().writableLocation(
                 qc.QStandardPaths.StandardLocation.AppDataLocation
@@ -86,7 +91,7 @@ class MainWindow(qw.QMainWindow):
         if (user_prefs / "config.json").exists():
             with open(user_prefs / "config.json", "r") as f:
                 prefs = json.load(f)
-        return prefs.get(key, None)
+        return prefs
 
 
 if __name__ == "__main__":

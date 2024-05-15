@@ -55,12 +55,12 @@ class FieldsWidget(qw.QWidget):
         self.query = query
 
     def add_fields(self):
-        if not self.query.file:
+        if not self.query.files:
             qw.QMessageBox.warning(
                 self, "No file selected", "Please select a file first"
             )
             return
-        available_fields = pl.scan_parquet(self.query.file).columns
+        available_fields = pl.scan_parquet(self.query.files).columns
         dialog = StringListChooser(available_fields, self)
         if dialog.exec() == qw.QDialog.DialogCode.Accepted:
             selected_fields = dialog.get_selected()
