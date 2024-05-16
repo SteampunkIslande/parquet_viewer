@@ -29,9 +29,14 @@ class ValidationModel(qc.QAbstractTableModel):
         self.beginInsertRows(qc.QModelIndex(), len(self._data), len(self._data))
         user_name = Path().home().name
         self.conn.sql(
-            f"INSERT INTO validations (username, date, validation_name, status) VALUES ({user_name}, current_timestamp, {name}, 'pending')"
+            f"INSERT INTO validations VALUES ({user_name}, current_timestamp, {name}, 'pending')"
         )
         self.endInsertRows()
+
+    def removeRow(self, row, parent: qc.QModelIndex = qc.QModelIndex()):
+        self.beginRemoveRows(qc.QModelIndex(), row, row)
+        self.conn.sql(f"DELETE FROM validations WHERE uuid = {self._data[row][-1]}")
+        self.endRemoveRows()
 
     def rowCount(self, parent=None):
         return len(self._data)

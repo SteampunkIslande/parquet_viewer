@@ -1,6 +1,5 @@
 import PySide6.QtWidgets as qw
 
-from plugins.fields.fields_widget import FieldsWidget
 from plugins.validation.validation_widget import ValidationWidget
 from query import Query
 
@@ -24,9 +23,6 @@ class Inspector(qw.QWidget):
         self.setup()
 
     def setup(self):
-
-        self.field_widget = FieldsWidget(self.query)
-        self.main_widget.addTab(self.field_widget, "Fields")
 
         self.validation_widget = ValidationWidget(self.query)
         self.main_widget.addTab(self.validation_widget, "Validation")

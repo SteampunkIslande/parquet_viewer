@@ -1,4 +1,3 @@
-import polars as pl
 import PySide6.QtCore as qc
 import PySide6.QtWidgets as qw
 
@@ -15,6 +14,8 @@ class ValidationWidgetWelcomePage(qw.QWidget):
     def __init__(self, query: Query, parent=None):
         super().__init__(parent)
         self.query = query
+
+        self.validations_view = qw.QTableView()
 
         self.setup_layout()
 
@@ -33,7 +34,9 @@ class ValidationWidgetWelcomePage(qw.QWidget):
         pass
 
 
-class ValidationWidgetPageOne(qw.QWidget):
+class FilesSelectionPage(qw.QWidget):
+
+    next_pressed = qc.Signal()
 
     def __init__(self, query: Query, parent=None):
         super().__init__(parent)
@@ -48,6 +51,9 @@ class ValidationWidgetPageOne(qw.QWidget):
         self.open_files_button.clicked.connect(self.open_files)
 
         self.chosen_files = []
+
+        self.next_button = qw.QPushButton("Next")
+        self.next_button.clicked.connect(self.next_pressed.emit)
 
         self.setup_layout()
 
@@ -67,23 +73,36 @@ class ValidationWidgetPageOne(qw.QWidget):
         self._layout = qw.QVBoxLayout()
         self._layout.addWidget(qw.QLabel("Select files to validate"))
         self._layout.addWidget(self.files_selection_widget)
+        self._layout.addWidget(self.open_files_button)
+        self._layout.addWidget(self.next_button)
         self.setLayout(self._layout)
 
 
-class ValidationWidgetPageTwo(qw.QWidget):
+class SamplesSelectionPage(qw.QWidget):
 
     def __init__(self, query: Query, parent=None):
         super().__init__(parent)
         self.query = query
 
-        self.fields_selection_widget = SearchableList(
-            pl.scan_parquet(self.query.files).columns
-        )
+        if self.query.conn:
+            samples = [
+                v["sample_name"]
+                for v in self.query.conn.sql(
+                    f"SELECT DISTINCT sample_name FROM {self.query.from_clause}"
+                )
+                .pl()
+                .to_dicts()
+            ]
+
+        self.sample_selection_widget = SearchableList(samples)
 
         self.setup_layout()
 
+    def query_changed(self):
+        pass
+
     def get_selected_fields(self):
-        return self.fields_selection_widget.get_selected()
+        return self.sample_selection_widget.get_selected()
 
     def setup_layout(self):
         layout = qw.QVBoxLayout()
@@ -102,7 +121,7 @@ class ValidationWidget(qw.QWidget):
         self.multi_widget_holder.add_widget(
             ValidationWidgetWelcomePage(query), "welcome"
         )
-        self.multi_widget_holder.add_widget(ValidationWidgetPageOne(query), "one")
+        self.multi_widget_holder.add_widget(FilesSelectionPage(query), "one")
 
         self.multi_widget_holder.set_current_widget("welcome")
 

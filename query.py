@@ -1,17 +1,68 @@
 #!/usr/bin/env python
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple, Union
 
 import duckdb as db
-import polars as pl
 import PySide6.QtCore as qc
 from cachetools import cached
 
 
 @cached(cache={})
-def run_sql(query: str) -> List[dict]:
-    return db.sql(query).pl().to_dicts()
+def run_sql(query: str, conn: db.DuckDBPyConnection = None) -> Union[List[dict], None]:
+    if not conn:
+        return None
+    res = conn.sql(query)
+    if res:
+        return res.pl().to_dicts()
+
+
+# class FilterType(Enum):
+#     AND = "AND"
+#     OR = "OR"
+#     LEAF = "LEAF"
+
+
+# class Filter:
+#     def __init__(
+#         self,
+#         filter_type: FilterType = FilterType.LEAF,
+#         operation="",
+#         parent: "Filter" = None,
+#     ):
+#         self.filter_type = filter_type
+#         self.children: List[Filter] = []
+#         self.operation = operation
+#         self.parent = parent
+
+#     def __str__(self) -> str:
+#         if self.filter_type == FilterType.AND:
+#             res = " AND ".join(str(c) for c in self.children)
+#         elif self.filter_type == FilterType.OR:
+#             res = " OR ".join(str(c) for c in self.children)
+#         elif self.filter_type == FilterType.LEAF:
+#             res = self.operation
+
+#         if self.parent:
+#             return f"({res})"
+#         return res
+
+#     def to_dict(self):
+#         return {
+#             "filter_type": self.filter_type.value,
+#             "children": [c.to_dict() for c in self.children],
+#             "operation": self.operation,
+#         }
+
+#     def from_dict(self, d: dict):
+#         self.filter_type = FilterType(d["filter_type"])
+#         self.children = [Filter().from_dict(c) for c in d["children"]]
+#         self.operation = d["operation"]
+#         return self
+
+#     def add_child(self, child):
+#         self.children.append(child, self)
+#         return self
 
 
 class Query(qc.QObject):
@@ -22,12 +73,12 @@ class Query(qc.QObject):
     order_by_changed = qc.Signal()
     limit_changed = qc.Signal()
     offset_changed = qc.Signal()
-    files_changed = qc.Signal()
+    from_changed = qc.Signal()
 
     # Signals for external use
     query_changed = qc.Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, conn: db.DuckDBPyConnection = None) -> None:
         super().__init__()
 
         self.init_state()
@@ -37,15 +88,17 @@ class Query(qc.QObject):
         self.order_by_changed.connect(self.update)
         self.limit_changed.connect(self.update)
         self.offset_changed.connect(self.update)
-        self.files_changed.connect(self.update)
+        self.from_changed.connect(self.update)
+
+        self.conn = conn
 
     def init_state(self):
         self.fields = []
-        self.filters = []
+        self.filter = ""
         self.order_by = []
         self.limit = 10
         self.offset = 0
-        self.files = None
+        self.from_clause = None
 
         self.current_page = 1
         self.page_count = 1
@@ -81,33 +134,21 @@ class Query(qc.QObject):
 
         return self
 
-    def get_files(self) -> Path:
-        return self.files
+    def get_from_clause(self) -> Path:
+        return self.from_clause
 
-    def set_files(self, files: List[Path]):
+    def set_from_clause(self, from_clause: str):
         self.init_state()
-        self.files = files
-        self.files_changed.emit()
+        self.from_clause = from_clause
+        self.from_changed.emit()
 
         return self
 
-    def add_filter(self, f):
-        self.filters.append(f)
-        self.filters_changed.emit()
+    def get_filter(self) -> str:
+        return self.filter
 
-        return self
-
-    def remove_filter(self, f):
-        self.filters.remove(f)
-        self.filters_changed.emit()
-
-        return self
-
-    def get_filters(self) -> List[str]:
-        return self.filters
-
-    def set_filters(self, filters: List[str]):
-        self.filters = filters
+    def set_filter(self, filter: str):
+        self.filter = filter
         self.filters_changed.emit()
 
         return self
@@ -118,6 +159,12 @@ class Query(qc.QObject):
     def set_order_by(self, order_by: List[Tuple[str, str]]):
         self.order_by = order_by
         self.order_by_changed.emit()
+
+        return self
+
+    def set_connection(self, conn: db.DuckDBPyConnection):
+        self.conn = conn
+        self.update()
 
         return self
 
@@ -178,49 +225,90 @@ class Query(qc.QObject):
     def get_header(self):
         return self.header
 
-    def select_query(self):
+    def mute(self):
+        self.blockSignals(True)
+        return self
 
-        if not self.files:
-            return ""
+    def unmute(self):
+        self.blockSignals(False)
+        return self
 
-        if not self.fields:
-            self.fields = pl.scan_parquet(self.files[0]).columns[:5]
+    def create_table_from_files(
+        self,
+        table_name: str,
+        fields: List[str],
+        filters: str,
+        files: List[str],
+        order_by: List[Tuple[str, str]],
+    ):
+        fields = ", ".join(fields)
+        order_by = ", ".join([f"{field} {direction}" for field, direction in order_by])
+        files = "[" + ",".join(f"'{f}'" for f in files) + "]"
 
-        fields = ", ".join(map(lambda s: f'"{s}"', self.fields))
-
-        filters = " AND ".join(self.filters)
-        order_by = ", ".join(
-            [f"{field} {direction}" for field, direction in self.order_by]
-        )
-
-        files = "[" + ",".join(f"'{f}'" for f in self.files) + "]"
+        user_name = Path().home().name
 
         if filters:
             filters = f"WHERE {filters}"
         if order_by:
             order_by = f"ORDER BY {order_by}"
-        return f"""SELECT string_split(parse_filename(filename,true),'.')[1] AS run_name,{fields} FROM read_parquet({files},union_by_name=True,filename=True) {filters} {order_by} LIMIT {self.limit} OFFSET {self.offset}"""
+        run_sql(
+            f"""CREATE TABLE {table_name} AS SELECT {fields} FROM read_parquet({files},union_by_name=True,filename=True) {filters} {order_by}"""
+        )
+        run_sql(
+            f"INSERT INTO validations VALUES ({table_name}, 'pending', {user_name}, current_timestamp, uuid())"
+        )
 
-    def count_query(self):
-        if not self.files:
+    def update_row(self, field: str, value: Any, row: str):
+        if self.from_clause in self.list_tables():
+            run_sql(
+                f"UPDATE {self.from_clause} SET {field} = {value} WHERE uuid = {row}"
+            )
+
+    def list_tables(self):
+        return [v["name"] for v in run_sql("SHOW TABLES", self.conn)]
+
+    def select_query(self):
+
+        if not self.from_clause:
             return ""
 
-        filters = " AND ".join(self.filters)
-        files = "[" + ",".join(f"'{f}'" for f in self.files) + "]"
+        if not self.fields:
+            self.fields = db.sql(f"SELECT * FROM {self.from_clause} LIMIT 1").columns[
+                :8
+            ]
+
+        fields = ", ".join(map(lambda s: f'"{s}"', self.fields))
+
+        filters = self.filter
+        order_by = ", ".join(
+            [f"{field} {direction}" for field, direction in self.order_by]
+        )
+
+        if filters:
+            filters = f"WHERE {filters}"
+        if order_by:
+            order_by = f"ORDER BY {order_by}"
+        return f"""SELECT string_split(parse_filename(filename,true),'.')[1] AS run_name,{fields} FROM {self.from_clause} {filters} {order_by} LIMIT {self.limit} OFFSET {self.offset}"""
+
+    def count_query(self):
+        if not self.from_clause:
+            return ""
+
+        filters = self.filter
 
         if filters:
             filters = f" WHERE {filters} "
-        return f"""SELECT COUNT(*) AS count_star FROM read_parquet({files},union_by_name=True,filename=True) {filters}"""
+        return f"""SELECT COUNT(*) AS count_star FROM {self.from_clause} {filters}"""
 
     def update(self):
         self.blockSignals(True)
-        if not self.files or all([not f.exists() for f in self.files]):
+        if not self.from_clause or all([not f.exists() for f in self.from_clause]):
             self.header = []
             self.data = []
             self.blockSignals(False)
             self.query_changed.emit()
             return
-        dict_data = run_sql(self.select_query())
+        dict_data = run_sql(self.select_query(), self.conn)
         if dict_data:
             self.header = list(dict_data[0].keys())
             self.data = [list(row.values()) for row in dict_data]
@@ -233,7 +321,7 @@ class Query(qc.QObject):
             self.blockSignals(False)
             self.query_changed.emit()
             return
-        self.row_count = run_sql(self.count_query())[0]["count_star"]
+        self.row_count = run_sql(self.count_query(), self.conn)[0]["count_star"]
         self.page_count = self.row_count // self.limit
         if self.row_count % self.limit > 0:
             self.page_count = self.page_count + 1
@@ -246,19 +334,19 @@ class Query(qc.QObject):
     def to_dict(self):
         return {
             "fields": self.fields,
-            "filters": self.filters,
+            "filters": self.filter,
             "order_by": self.order_by,
             "limit": self.limit,
             "offset": self.offset,
-            "file": [str(f) for f in self.files] if self.files else [],
+            "from_clause": self.from_clause,
         }
 
     def from_dict(self, d: dict):
         self.fields = d.get("fields", [])
-        self.filters = d.get("filters", [])
+        self.filter = d.get("filters", [])
         self.order_by = d.get("order_by", [])
         self.limit = d.get("limit", 10)
         self.offset = d.get("offset", 0)
-        self.files = [Path(f) for f in d.get("file", [])]
+        self.from_clause = d.get("from_clause", None)
         self.update()
         return self
