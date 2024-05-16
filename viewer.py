@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 
 
-import json
 from pathlib import Path
 
 import PySide6.QtCore as qc
 import PySide6.QtGui as qg
 import PySide6.QtWidgets as qw
 
-from fields.fields_widget import FieldsWidget
+from commons import load_user_prefs, save_user_prefs
+from inspector import Inspector
 from query import Query
 from table.query_table_widget import QueryTableWidget
 
@@ -20,20 +20,26 @@ class MainWindow(qw.QMainWindow):
 
         self.query = Query()
 
-        self.fields_widget = FieldsWidget(self.query)
         self.query_table_widget = QueryTableWidget(self.query)
+        self.inspector = Inspector(self.query)
 
-        # Add table view on the left, separated by a splitter from the fields widget
-        self.splitter = qw.QSplitter()
-        self.splitter.addWidget(self.fields_widget)
-        self.splitter.addWidget(self.query_table_widget)
+        self.database = None
 
-        self.setCentralWidget(self.splitter)
+        self.main_widget = qw.QSplitter(qc.Qt.Orientation.Horizontal)
+        self.main_widget.addWidget(self.inspector)
+        self.main_widget.addWidget(self.query_table_widget)
+
+        self.setCentralWidget(self.main_widget)
 
         self.menu = self.menuBar()
         self.file_menu = self.menu.addMenu("File")
-        self.open_action = self.file_menu.addAction("Open")
+        self.open_action = self.file_menu.addAction("Open parquet file")
+        self.new_action = self.file_menu.addAction("New analysis database")
+        self.choose_database_action = self.file_menu.addAction("Open analysis database")
+
         self.open_action.triggered.connect(self.open_file)
+        self.new_action.triggered.connect(self.open_database)
+        self.choose_database_action.triggered.connect(self.open_database)
 
         self.load_previous_session()
 
@@ -59,39 +65,47 @@ class MainWindow(qw.QMainWindow):
             self.save_user_prefs({"last_files": files})
             self.query.set_files([Path(f) for f in files])
 
+    def open_database(self):
+        last_database = self.get_user_prefs().get("analysis_database", None)
+        if not last_database:
+            d = Path().home()
+        else:
+            d = Path(last_database).parent
+        database, _ = qw.QFileDialog.getOpenFileName(
+            self,
+            "Open DuckDB database",
+            dir=str(d),
+            filter="DuckDB database files (*.db)",
+        )
+        if database:
+            self.save_user_prefs({"analysis_database": database})
+            self.database = database
+
+    def new_database(self):
+        last_database = self.get_user_prefs().get("analysis_database", None)
+        if not last_database:
+            d = Path().home()
+        else:
+            d = Path(last_database).parent
+        database, _ = qw.QFileDialog.getSaveFileName(
+            self,
+            "Create DuckDB database",
+            dir=str(d),
+            filter="DuckDB database files (*.db)",
+        )
+        if database:
+            self.save_user_prefs({"analysis_database": database})
+            self.database = database
+
     def closeEvent(self, event: qg.QCloseEvent):
         self.save_user_prefs({"query": self.query.to_dict()})
         event.accept()
 
     def save_user_prefs(self, prefs: dict):
-
-        user_prefs = Path(
-            qc.QStandardPaths().writableLocation(
-                qc.QStandardPaths.StandardLocation.AppDataLocation
-            )
-        )
-        user_prefs.mkdir(parents=True, exist_ok=True)
-        old_prefs = {}
-        if (user_prefs / "config.json").exists():
-            with open(user_prefs / "config.json", "r") as f:
-                old_prefs = json.load(f)
-
-        old_prefs.update(prefs)
-
-        with open(user_prefs / "config.json", "w") as f:
-            json.dump(old_prefs, f)
+        save_user_prefs(prefs)
 
     def get_user_prefs(self):
-        user_prefs = Path(
-            qc.QStandardPaths().writableLocation(
-                qc.QStandardPaths.StandardLocation.AppDataLocation
-            )
-        )
-        prefs = {}
-        if (user_prefs / "config.json").exists():
-            with open(user_prefs / "config.json", "r") as f:
-                prefs = json.load(f)
-        return prefs
+        return load_user_prefs()
 
 
 if __name__ == "__main__":

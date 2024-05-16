@@ -8,7 +8,7 @@ import PySide6.QtGui as qg
 import PySide6.QtWidgets as qw
 
 from common_widgets.string_list_chooser import StringListChooser
-from fields.fields_model import FieldsModel
+from plugins.fields.fields_model import FieldsModel
 from query import Query
 
 

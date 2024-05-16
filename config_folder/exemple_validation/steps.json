@@ -1,0 +1,26 @@
+{
+    "name": "Exemple de validation",
+    "steps": [
+        {
+            "name": "Etape 1",
+            "description": "Cette première étape ne montre que les champs A, B et C. Vous ne voyez pas les champs A dont la valeur est inférieure à 10. Ces champs sont triés par ordre croissant de la valeur du champ B, puis du champ A.",
+            "fields": "fields/default_fields_set.txt",
+            "filters": "filters/default_filters.txt",
+            "order_by": "order_by/default_order_by.txt"
+        },
+        {
+            "name": "Etape 2",
+            "description": "Description de l'étape 2",
+            "fields": "fields/default_fields_set.txt",
+            "filters": "filters/default_filters.txt",
+            "order_by": "order_by/default_order_by.txt"
+        },
+        {
+            "name": "Etape 3",
+            "description": "Description de l'étape 3",
+            "fields": "fields/default_fields_set.txt",
+            "filters": "filters/default_filters.txt",
+            "order_by": "order_by/default_order_by.txt"
+        }
+    ]
+}

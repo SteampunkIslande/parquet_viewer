@@ -22,7 +22,7 @@ class Query(qc.QObject):
     order_by_changed = qc.Signal()
     limit_changed = qc.Signal()
     offset_changed = qc.Signal()
-    file_changed = qc.Signal()
+    files_changed = qc.Signal()
 
     # Signals for external use
     query_changed = qc.Signal()
@@ -37,7 +37,7 @@ class Query(qc.QObject):
         self.order_by_changed.connect(self.update)
         self.limit_changed.connect(self.update)
         self.offset_changed.connect(self.update)
-        self.file_changed.connect(self.update)
+        self.files_changed.connect(self.update)
 
     def init_state(self):
         self.fields = []
@@ -81,13 +81,13 @@ class Query(qc.QObject):
 
         return self
 
-    def get_file(self) -> Path:
-        return self.file
+    def get_files(self) -> Path:
+        return self.files
 
     def set_files(self, files: List[Path]):
         self.init_state()
         self.files = files
-        self.file_changed.emit()
+        self.files_changed.emit()
 
         return self
 

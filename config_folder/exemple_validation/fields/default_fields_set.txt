@@ -1,0 +1,5 @@
+Chrom
+Position
+VAF
+VAF color
+TRI
